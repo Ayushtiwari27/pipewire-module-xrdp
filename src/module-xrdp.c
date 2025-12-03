@@ -407,15 +407,55 @@ static void playback_stream_process(void *data)
 {
 	struct impl *impl = data;
 	struct pw_buffer *buf;
+	struct spa_data *d;
+	uint32_t size, offset;
+	ssize_t written;
 
 	if ((buf = pw_stream_dequeue_buffer(impl->stream_sink)) == NULL) {
 		pw_log_debug("out of buffers: %m");
 		return;
 	}
 
-	/* TODO: Phase 3 - Write raw PCM to speaker FIFO */
-	pw_log_trace("playback_stream_process: FIFO write not yet implemented");
+	/* Try to open FIFO if not already open */
+	if (impl->fd_sink < 0) {
+		if (open_speaker_fifo(impl) < 0) {
+			/* Can't write without FIFO, just drop the data */
+			pw_log_trace("Speaker FIFO not ready, dropping audio");
+			goto done;
+		}
+	}
 
+	/* Write all data buffers to FIFO */
+	for (uint32_t i = 0; i < buf->buffer->n_datas; i++) {
+		d = &buf->buffer->datas[i];
+
+		offset = SPA_MIN(d->chunk->offset, d->maxsize);
+		size = SPA_MIN(d->chunk->size, d->maxsize - offset);
+
+		if (size == 0)
+			continue;
+
+		written = write(impl->fd_sink, SPA_PTROFF(d->data, offset, void), size);
+
+		if (written < 0) {
+			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+				/* FIFO full, drop the frame */
+				pw_log_trace("Speaker FIFO full (EAGAIN), dropping %u bytes", size);
+			} else if (errno == EPIPE) {
+				/* Broken pipe, try to reconnect */
+				pw_log_warn("Speaker FIFO broken pipe, reconnecting...");
+				if (reconnect_fifo(impl, 1) < 0) {
+					pw_log_warn("Failed to reconnect speaker FIFO");
+				}
+			} else {
+				pw_log_error("Error writing to speaker FIFO: %s", strerror(errno));
+			}
+		} else if (written != (ssize_t)size) {
+			pw_log_warn("Partial write to speaker FIFO: %zd/%u bytes", written, size);
+		}
+	}
+
+done:
 	pw_stream_queue_buffer(impl->stream_sink, buf);
 }
 
@@ -425,6 +465,7 @@ static void capture_stream_process(void *data)
 	struct pw_buffer *buf;
 	struct spa_data *d;
 	uint32_t req;
+	ssize_t nread;
 
 	if ((buf = pw_stream_dequeue_buffer(impl->stream_source)) == NULL) {
 		pw_log_debug("out of buffers: %m");
@@ -440,13 +481,59 @@ static void capture_stream_process(void *data)
 
 	d->chunk->offset = 0;
 	d->chunk->stride = impl->frame_size;
+	d->chunk->size = 0;
 
-	/* TODO: Phase 3 - Read raw PCM from mic FIFO */
-	/* For now, fill with silence */
-	d->chunk->size = req;
-	memset(d->data, 0, req);
-	pw_log_trace("capture_stream_process: FIFO read not yet implemented, filling with silence");
+	/* Try to open FIFO if not already open */
+	if (impl->fd_source < 0) {
+		if (open_mic_fifo(impl) < 0) {
+			/* Can't read without FIFO, fill with silence */
+			pw_log_trace("Mic FIFO not ready, filling with silence");
+			d->chunk->size = req;
+			memset(d->data, 0, req);
+			goto done;
+		}
+	}
 
+	/* Read from mic FIFO */
+	nread = read(impl->fd_source, d->data, req);
+
+	if (nread < 0) {
+		if (errno == EAGAIN || errno == EWOULDBLOCK) {
+			/* No data available, fill with silence */
+			pw_log_trace("Mic FIFO empty (EAGAIN), filling with silence");
+			d->chunk->size = req;
+			memset(d->data, 0, req);
+		} else if (errno == EPIPE) {
+			/* Broken pipe, try to reconnect */
+			pw_log_warn("Mic FIFO broken pipe, reconnecting...");
+			if (reconnect_fifo(impl, 0) < 0) {
+				pw_log_warn("Failed to reconnect mic FIFO");
+			}
+			/* Fill with silence for this buffer */
+			d->chunk->size = req;
+			memset(d->data, 0, req);
+		} else {
+			pw_log_error("Error reading from mic FIFO: %s", strerror(errno));
+			d->chunk->size = req;
+			memset(d->data, 0, req);
+		}
+	} else if (nread == 0) {
+		/* EOF, fill with silence */
+		pw_log_trace("Mic FIFO EOF, filling with silence");
+		d->chunk->size = req;
+		memset(d->data, 0, req);
+	} else {
+		/* Got some data */
+		d->chunk->size = nread;
+
+		/* If we got less than requested, pad with silence */
+		if ((uint32_t)nread < req) {
+			memset(SPA_PTROFF(d->data, nread, void), 0, req - nread);
+			d->chunk->size = req;
+		}
+	}
+
+done:
 	pw_stream_queue_buffer(impl->stream_source, buf);
 }
 
