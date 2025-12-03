@@ -139,6 +139,11 @@
 #define DEFAULT_CHANNELS 2
 #define DEFAULT_POSITION "[ FL FR ]"
 
+/* FIFO paths - can be overridden by environment variables */
+#define DEFAULT_SPEAKER_FIFO_NAME "xrdp_spk.pcm"
+#define DEFAULT_MIC_FIFO_NAME "xrdp_mic.pcm"
+#define DEFAULT_FORMAT_FILE_NAME "xrdp_audio_format.txt"
+
 PW_LOG_TOPIC_STATIC(mod_topic, "mod." NAME);
 #define PW_LOG_TOPIC_DEFAULT mod_topic
 
@@ -179,11 +184,12 @@ struct impl {
 	struct spa_hook core_proxy_listener;  // common
 	struct spa_hook core_listener;  // common
 
-	char *filename_sink;
-	char *filename_source;
-	int fd_sink;
-	int fd_source;
-	uint64_t failed_connect_time;
+	char *filename_sink;        // Speaker FIFO path
+	char *filename_source;      // Mic FIFO path
+	char *format_file_path;     // Format specification file path
+	int fd_sink;                // Speaker FIFO fd
+	int fd_source;              // Mic FIFO fd
+	time_t last_format_write;   // Throttle format file writes
 
 	struct pw_properties *stream_props_sink;
 	struct pw_properties *stream_props_source;
@@ -229,6 +235,132 @@ static void stream_destroy_source(void *d)
 	struct impl *impl = d;
 	spa_hook_remove(&impl->stream_listener_source);
 	impl->stream_source = NULL;
+}
+
+static void set_fifo_paths(struct impl *impl) {
+	uid_t uid = getuid();
+	char default_path[256];
+
+	/* Get speaker FIFO path */
+	const char *spk_path = getenv("XRDP_AUDIO_SPK_FIFO");
+	if (spk_path && spk_path[0] != '\0') {
+		impl->filename_sink = strdup(spk_path);
+	} else {
+		snprintf(default_path, sizeof(default_path), "/run/user/%d/%s", uid, DEFAULT_SPEAKER_FIFO_NAME);
+		impl->filename_sink = strdup(default_path);
+	}
+
+	/* Get microphone FIFO path */
+	const char *mic_path = getenv("XRDP_AUDIO_MIC_FIFO");
+	if (mic_path && mic_path[0] != '\0') {
+		impl->filename_source = strdup(mic_path);
+	} else {
+		snprintf(default_path, sizeof(default_path), "/run/user/%d/%s", uid, DEFAULT_MIC_FIFO_NAME);
+		impl->filename_source = strdup(default_path);
+	}
+
+	/* Get format file path */
+	const char *fmt_path = getenv("XRDP_AUDIO_FORMAT_FILE");
+	if (fmt_path && fmt_path[0] != '\0') {
+		impl->format_file_path = strdup(fmt_path);
+	} else {
+		snprintf(default_path, sizeof(default_path), "/run/user/%d/%s", uid, DEFAULT_FORMAT_FILE_NAME);
+		impl->format_file_path = strdup(default_path);
+	}
+
+	pw_log_info("FIFO paths: speaker=%s, mic=%s, format=%s",
+		impl->filename_sink, impl->filename_source, impl->format_file_path);
+}
+
+static int open_fifo(const char *path, int flags, mode_t mode) {
+	int fd;
+
+	/* Remove stale FIFO if it exists */
+	unlink(path);
+
+	/* Create new FIFO */
+	if (mkfifo(path, mode) < 0 && errno != EEXIST) {
+		pw_log_error("Failed to create FIFO %s: %s", path, strerror(errno));
+		return -1;
+	}
+
+	/* Open with O_NONBLOCK to prevent blocking if no reader/writer */
+	fd = open(path, flags | O_NONBLOCK);
+	if (fd < 0) {
+		pw_log_error("Failed to open FIFO %s: %s", path, strerror(errno));
+		return -1;
+	}
+
+	pw_log_info("Opened FIFO: %s (fd=%d)", path, fd);
+	return fd;
+}
+
+static int open_speaker_fifo(struct impl *impl) {
+	if (impl->fd_sink >= 0) {
+		return 0; /* Already open */
+	}
+
+	impl->fd_sink = open_fifo(impl->filename_sink, O_WRONLY, 0644);
+	if (impl->fd_sink < 0) {
+		pw_log_warn("Could not open speaker FIFO, will retry");
+		return -1;
+	}
+
+	return 0;
+}
+
+static int open_mic_fifo(struct impl *impl) {
+	if (impl->fd_source >= 0) {
+		return 0; /* Already open */
+	}
+
+	impl->fd_source = open_fifo(impl->filename_source, O_RDONLY, 0644);
+	if (impl->fd_source < 0) {
+		pw_log_warn("Could not open mic FIFO, will retry");
+		return -1;
+	}
+
+	return 0;
+}
+
+static void close_fifos(struct impl *impl) {
+	if (impl->fd_sink >= 0) {
+		close(impl->fd_sink);
+		impl->fd_sink = -1;
+		pw_log_info("Closed speaker FIFO");
+	}
+
+	if (impl->fd_source >= 0) {
+		close(impl->fd_source);
+		impl->fd_source = -1;
+		pw_log_info("Closed mic FIFO");
+	}
+
+	/* Clean up FIFO files */
+	if (impl->filename_sink) {
+		unlink(impl->filename_sink);
+	}
+	if (impl->filename_source) {
+		unlink(impl->filename_source);
+	}
+}
+
+static int reconnect_fifo(struct impl *impl, int is_sink) {
+	if (is_sink) {
+		if (impl->fd_sink >= 0) {
+			close(impl->fd_sink);
+			impl->fd_sink = -1;
+		}
+		pw_log_info("Reconnecting speaker FIFO...");
+		return open_speaker_fifo(impl);
+	} else {
+		if (impl->fd_source >= 0) {
+			close(impl->fd_source);
+			impl->fd_source = -1;
+		}
+		pw_log_info("Reconnecting mic FIFO...");
+		return open_mic_fifo(impl);
+	}
 }
 
 static void stream_state_changed_sink(void *d, enum pw_stream_state old,
@@ -428,6 +560,9 @@ static const struct pw_proxy_events core_proxy_events = {
 
 static void impl_destroy(struct impl *impl)
 {
+	/* Close FIFOs and clean up FIFO files */
+	close_fifos(impl);
+
 	if (impl->stream_sink)
 		pw_stream_destroy(impl->stream_sink);
 	if (impl->core && impl->do_disconnect)
@@ -437,8 +572,6 @@ static void impl_destroy(struct impl *impl)
 		free(impl->filename_sink);
 		impl->filename_sink = NULL;
 	}
-	if (impl->fd_sink >= 0)
-		close(impl->fd_sink);
 
 	pw_properties_free(impl->stream_props_sink);
 	pw_properties_free(impl->props_sink);
@@ -450,8 +583,13 @@ static void impl_destroy(struct impl *impl)
 		free(impl->filename_source);
 		impl->filename_source = NULL;
 	}
-	if (impl->fd_source >= 0)
-		close(impl->fd_source);
+
+	if (impl->format_file_path) {
+		/* Clean up format file */
+		unlink(impl->format_file_path);
+		free(impl->format_file_path);
+		impl->format_file_path = NULL;
+	}
 
 	pw_properties_free(impl->stream_props_source);
 	pw_properties_free(impl->props_source);
@@ -591,6 +729,8 @@ int pipewire__module_init(struct pw_impl_module *module, const char *args)
 	impl->fd_source = -1;
 	impl->filename_sink = NULL;
 	impl->filename_source = NULL;
+	impl->format_file_path = NULL;
+	impl->last_format_write = 0;
 
 	impl->module = module;
 	impl->context = context;
@@ -744,6 +884,17 @@ int pipewire__module_init(struct pw_impl_module *module, const char *args)
 	pw_core_add_listener(impl->core,
 			&impl->core_listener,
 			&core_events, impl);
+
+	/* Set up FIFO paths from environment variables */
+	set_fifo_paths(impl);
+
+	/* Try to open FIFOs (non-fatal if they fail) */
+	if (impl->mode & MODE_XRDP_SINK) {
+		open_speaker_fifo(impl);
+	}
+	if (impl->mode & MODE_XRDP_SOURCE) {
+		open_mic_fifo(impl);
+	}
 
   	if ((res = create_stream(impl)) < 0)
 		goto error;
