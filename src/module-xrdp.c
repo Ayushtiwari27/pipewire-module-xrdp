@@ -153,11 +153,6 @@ PW_LOG_TOPIC_STATIC(mod_topic, "mod." NAME);
 			"[ source.stream.props=<properties for source> ] "
 
 
-/* commands to xrdp_chansrv_audio_in_socket (xrdp/sesman/chansrv/sound.h)*/
-#define PA_CMD_START_REC    1
-#define PA_CMD_STOP_REC     2
-#define PA_CMD_SEND_DATA    3
-
 static const struct spa_dict_item module_props[] = {
 	{ PW_KEY_MODULE_AUTHOR, "Wim Taymans <wim.taymans@gmail.com>" },
 	{ PW_KEY_MODULE_DESCRIPTION, "Create a xrdp pipewire interface" },
@@ -203,7 +198,6 @@ struct impl {
 	uint32_t leftover_count;  // only source
 	uint8_t *leftover;  // only source
 
-	int want_src_data;  // only source
 	unsigned int unloading:1;  // common
 	struct pw_work_queue *work;  // common
 	int display_num; // for debug
@@ -237,89 +231,6 @@ static void stream_destroy_source(void *d)
 	impl->stream_source = NULL;
 }
 
-struct header {
-    int code;
-    int bytes;
-};
-
-static int get_display_num_from_display(const char *display_text) {
-    int mode = 0;
-    int disp_index = 0;
-    char disp[16] = { 0 };
-
-    if (display_text == NULL)
-        return 0;
-
-    for (size_t index = 0; display_text[index] != 0 && index < sizeof(disp) ; index++) {
-        if (display_text[index] == ':')
-            mode = 1;
-        else if (display_text[index] == '.')
-            break;
-        else if (mode == 1)
-            disp[disp_index++] = display_text[index];
-    }
-
-    disp[disp_index] = 0;
-    return atoi(disp);
-}
-
-static int lsend(int fd, char *data, int bytes) {
-    int sent = 0;
-    while (sent < bytes) {
-        int error = send(fd, data + sent, bytes - sent, MSG_NOSIGNAL);
-        if (error < 1)
-            return error;
-        sent += error;
-    }
-    return sent;
-}
-
-static int lrecv(int fd, char *data, int bytes) {
-    int recved = 0;
-    while (recved < bytes) {
-        int error = recv(fd, data + recved, bytes - recved, 0);
-        if (error < 1)
-            return error;
-        recved += error;
-    }
-    return recved;
-}
-
-static int close_send_sink(struct impl *impl) {
-    pw_log_info("close_send_sink");
-    if (impl->fd_sink != -1) {
-		struct header h;
-		h.code = 1;
-		h.bytes = 8;
-	    if (lsend(impl->fd_sink, (char*)(&h), 8) != 8) {
-    	    pw_log_debug("close_send: send failed");
-        	close(impl->fd_sink);
-	        impl->fd_sink = -1;
-    	    return 0;
-	    } else {
-    	    pw_log_debug("close_send: sent header ok");
-		}
-    }
-
-    return 8;
-}
-
-static int close_send_source(struct impl *impl) {
-    pw_log_info("close_send_source");
-    if (impl->fd_source != -1) {
-		/* we don't want source data anymore */
-		char stop_rec[] = { 0, 0, 0, 0, 11, 0, 0, 0, PA_CMD_STOP_REC, 0, 0 };
-		if (lsend(impl->fd_source, stop_rec, 11) != 11) {
-			close(impl->fd_source);
-			impl->fd_source = -1;
-		}
-		impl->want_src_data = 0;
-		pw_log_debug("###### stopped recording");
-	}
-
-    return 8;
-}
-
 static void stream_state_changed_sink(void *d, enum pw_stream_state old,
 		enum pw_stream_state state, const char *error)
 {
@@ -327,11 +238,10 @@ static void stream_state_changed_sink(void *d, enum pw_stream_state old,
 	switch (state) {
 	case PW_STREAM_STATE_ERROR:
 	case PW_STREAM_STATE_UNCONNECTED:
-		//pw_impl_module_schedule_destroy(impl->module);
 		unload_module(impl);
 		break;
 	case PW_STREAM_STATE_PAUSED:
-		close_send_sink(impl);
+		/* FIFO will be closed in impl_destroy */
 		break;
 	case PW_STREAM_STATE_STREAMING:
 		break;
@@ -348,11 +258,10 @@ static void stream_state_changed_source(void *d, enum pw_stream_state old,
 	switch (state) {
 	case PW_STREAM_STATE_ERROR:
 	case PW_STREAM_STATE_UNCONNECTED:
-		//pw_impl_module_schedule_destroy(impl->module);
 		unload_module(impl);
 		break;
 	case PW_STREAM_STATE_PAUSED:
-		close_send_source(impl);
+		/* FIFO will be closed in impl_destroy */
 		break;
 	case PW_STREAM_STATE_STREAMING:
 		break;
@@ -362,149 +271,20 @@ static void stream_state_changed_source(void *d, enum pw_stream_state old,
     pw_log_debug("stream_state_changed:%s", pw_stream_state_as_string (state));
 }
 
-static void set_socket_path(struct impl *impl) {
-	const char *socket_path;
-    char default_socket_path[128];
-
-    const char *socket_dir;
-    const char *socket_name;
-
-    socket_dir = getenv("XRDP_SOCKET_PATH");
-    if (socket_dir == NULL || socket_dir[0] == '\0') {
-		return;
-	}
-    impl->display_num = get_display_num_from_display(getenv("DISPLAY"));
-
-    socket_name = getenv("XRDP_PULSE_SINK_SOCKET");
-    if (socket_name == NULL || socket_name[0] == '\0') {
-		return;
-
-		//pw_log_debug("Could not obtain xrdp_socket from environment.");
-		//snprintf(default_socket_name, sizeof(default_socket_name)-1,
-		//		"xrdp_chansrv_audio_out_socket_%d", impl->display_num);
-       	//socket_name = default_socket_name;
-   	}
-	snprintf(default_socket_path, sizeof(default_socket_path)-1, "%s/%s", socket_dir, socket_name);
-	socket_path = default_socket_path;
-
-    pw_log_info("set_sink_socket. socket path:%s", socket_path);
-
-	impl->filename_sink = strdup(socket_path);
-
-    socket_name = getenv("XRDP_PULSE_SOURCE_SOCKET");
-    if (socket_name == NULL || socket_name[0] == '\0') {
-		return;
-
-		//pw_log_debug("Could not obtain xrdp_socket from environment.");
-		//snprintf(default_socket_name, sizeof(default_socket_name)-1,
-		//		"xrdp_chansrv_audio_out_socket_%d", impl->display_num);
-       	//socket_name = default_socket_name;
-   	}
-	snprintf(default_socket_path, sizeof(default_socket_path)-1, "%s/%s", socket_dir, socket_name);
-	socket_path = default_socket_path;
-
-    pw_log_info("set_source_socket. socket path:%s", socket_path);
-
-	impl->filename_source = strdup(socket_path);
-}
-
-static int conect_xrdp_socket(struct impl *impl, char *filename) {
-    struct sockaddr_un s = { 0 };
-    struct timespec tm;
-
-    if (impl->failed_connect_time != 0) {
-        clock_gettime(CLOCK_MONOTONIC, &tm);
-        //pw_log_debug("wait 1sec when connect error occurred. waiting %lld nS", (tm.tv_sec * 1000000000LL + tm.tv_nsec) - impl->failed_connect_time);
-        if ((tm.tv_sec * 1000000000LL + tm.tv_nsec) - impl->failed_connect_time < 1000000000LL) {
-            return -1;
-        }
-    }
-
-    /* connect to xrdp unix domain socket */
-    int fd = socket(PF_LOCAL, SOCK_STREAM, 0);
-    s.sun_family = AF_UNIX;
-    strncpy(s.sun_path, filename, sizeof(s.sun_path)-1);
-    pw_log_info("trying to connect to %s", s.sun_path);
-
-    if (connect(fd, (struct sockaddr *)&s, sizeof(struct sockaddr_un)) != 0) {
-        pw_log_debug("Connect failed");
-        close(fd);
-        clock_gettime(CLOCK_MONOTONIC, &tm);
-        impl->failed_connect_time = tm.tv_sec * 1000000000LL + tm.tv_nsec;
-        fd = -1;
-    } else {
-        impl->failed_connect_time = 0;
-        pw_log_info("Connected ok fd %d", fd);
-    }
-    return fd;
-}
-
 static void playback_stream_process(void *data)
 {
 	struct impl *impl = data;
 	struct pw_buffer *buf;
-	ssize_t written_all = 0;
-	uint32_t size_all = 0;
 
 	if ((buf = pw_stream_dequeue_buffer(impl->stream_sink)) == NULL) {
 		pw_log_debug("out of buffers: %m");
 		return;
 	}
 
-    if (impl->fd_sink == -1) {
-        if ((impl->fd_sink = conect_xrdp_socket(impl, impl->filename_sink)) == -1)
-            goto error;
-	}
+	/* TODO: Phase 3 - Write raw PCM to speaker FIFO */
+	pw_log_trace("playback_stream_process: FIFO write not yet implemented");
 
-	for (uint32_t i = 0; i < buf->buffer->n_datas; i++) {
-        uint32_t size, offs;
-        struct spa_data *d;
-        d = &buf->buffer->datas[i];
-
-        offs = SPA_MIN(d->chunk->offset, d->maxsize);
-        size = SPA_MIN(d->chunk->size, d->maxsize - offs);
-
-        size_all += size;
-    }
-    struct header h;
-    h.code = 0;
-    h.bytes = 8 + size_all;
-    if (lsend(impl->fd_sink, (char*)(&h), 8) != 8) {
-        pw_log_warn("data_send: send failed");
-        close(impl->fd_sink);
-        impl->fd_sink = -1;
-        goto error;
-    } else {
-        //pw_log_debug("data_send: sent header ok bytes %d", size_all);
-    }
-
-	for (uint32_t i = 0; i < buf->buffer->n_datas; i++) {
-        uint32_t size, offs;
-        ssize_t written;
-        struct spa_data *d;
-        d = &buf->buffer->datas[i];
-
-        offs = SPA_MIN(d->chunk->offset, d->maxsize);
-        size = SPA_MIN(d->chunk->size, d->maxsize - offs);
-
-        written = lsend(impl->fd_sink, SPA_MEMBER(d->data, offs, void), size);
-        written_all += written;
-        if (written != size) {
-            pw_log_warn("Failed to write to xrdp sink");
-            close(impl->fd_sink);
-            impl->fd_sink = -1;
-            goto error;
-        }
-	}
-
-error:
 	pw_stream_queue_buffer(impl->stream_sink, buf);
-
-    if (written_all != size_all) {
-        //pw_log_warn("data_send: send failed sent %ld bytes %d", written_all, size_all);
-    } else {
-        //pw_log_warn("data_send: send OK n_datas:%d sent %ld bytes %d", buf->buffer->n_datas, written_all, size_all);
-    }
 }
 
 static void capture_stream_process(void *data)
@@ -513,7 +293,6 @@ static void capture_stream_process(void *data)
 	struct pw_buffer *buf;
 	struct spa_data *d;
 	uint32_t req;
-	ssize_t nread = 0;
 
 	if ((buf = pw_stream_dequeue_buffer(impl->stream_source)) == NULL) {
 		pw_log_debug("out of buffers: %m");
@@ -529,69 +308,12 @@ static void capture_stream_process(void *data)
 
 	d->chunk->offset = 0;
 	d->chunk->stride = impl->frame_size;
-	d->chunk->size = SPA_MIN(req, impl->leftover_count);
-	memcpy(d->data, impl->leftover, d->chunk->size);
-	req -= d->chunk->size;
 
-	uint32_t bytes = 0;
-    unsigned char ubuf[10];
-
-	if (impl->fd_source == -1) {
-	    if ((impl->fd_source = conect_xrdp_socket(impl, impl->filename_source)) == -1)
-	        goto nodata;
-	}
-
-	if (!impl->want_src_data) {
-		char start_rec[] = { 0, 0, 0, 0, 11, 0, 0, 0, PA_CMD_START_REC, 0, 0 };
-
-		if (lsend(impl->fd_source, start_rec, 11) != 11) {
-			close(impl->fd_source);
-			impl->fd_source = -1;
-			goto nodata;
-		}
-		impl->want_src_data = 1;
-		pw_log_debug("###### started recording");
-	}
-
-	/* ask for more data */
-	char send_data[] = { 0, 0, 0, 0, 11, 0, 0, 0, PA_CMD_SEND_DATA, (unsigned char) req, (unsigned char) ((req >> 8) & 0xff) };
-
-	if (lsend(impl->fd_source, send_data, 11) != 11) {
-		close(impl->fd_source);
-		impl->fd_source = -1;
-		impl->want_src_data = 0;
-		goto nodata;
-	}
-
-	/* read length of data available */
-	if (lrecv(impl->fd_source, (char *) ubuf, 2) != 2) {
-		close(impl->fd_source);
-		impl->fd_source = -1;
-		impl->want_src_data = 0;
-		goto nodata;
-	}
-	bytes = ((ubuf[1] << 8) & 0xff00) | (ubuf[0] & 0xff);
-
-	if (bytes == 0)
-		goto nodata;
-
-	/* get data */
-	nread = lrecv(impl->fd_source, SPA_PTROFF(d->data, d->chunk->size, void), /*req*/bytes);
-	if (nread < 0) {
-		close(impl->fd_source);
-		impl->fd_source = -1;
-		impl->want_src_data = 0;
-		pw_log_warn("failed to read from pipe (%s): %s",
-					impl->filename_source, strerror(errno));
-	} else {
-		d->chunk->size += nread;
-	}
-nodata:
-    //pw_log_debug("nread:%ld. req:%d. %s", nread, req, req == bytes ? "":"req != bytes");
-
-	impl->leftover_count = d->chunk->size % impl->frame_size;
-	d->chunk->size -= impl->leftover_count;
-	memcpy(impl->leftover, SPA_PTROFF(d->data, d->chunk->size, void), impl->leftover_count);
+	/* TODO: Phase 3 - Read raw PCM from mic FIFO */
+	/* For now, fill with silence */
+	d->chunk->size = req;
+	memset(d->data, 0, req);
+	pw_log_trace("capture_stream_process: FIFO read not yet implemented, filling with silence");
 
 	pw_stream_queue_buffer(impl->stream_source, buf);
 }
@@ -706,9 +428,6 @@ static const struct pw_proxy_events core_proxy_events = {
 
 static void impl_destroy(struct impl *impl)
 {
-    close_send_sink(impl);
-    close_send_source(impl);
-
 	if (impl->stream_sink)
 		pw_stream_destroy(impl->stream_sink);
 	if (impl->core && impl->do_disconnect)
@@ -1025,8 +744,6 @@ int pipewire__module_init(struct pw_impl_module *module, const char *args)
 	pw_core_add_listener(impl->core,
 			&impl->core_listener,
 			&core_events, impl);
-
-	set_socket_path(impl);
 
   	if ((res = create_stream(impl)) < 0)
 		goto error;
