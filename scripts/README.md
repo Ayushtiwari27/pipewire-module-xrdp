@@ -72,8 +72,8 @@ systemctl --user start xrdp-audio-fifo.service
 ### Manual FIFO Test
 
 ```bash
-# Terminal 1: Start the module
-pw-cli load-module libpipewire-module-xrdp
+# Terminal 1: Start the module (with required arguments)
+pw-cli load-module libpipewire-module-xrdp '{ sink.stream.props={} source.stream.props={} }'
 
 # Terminal 2: Start ffmpeg manager
 ./scripts/ffmpeg_manager.sh start

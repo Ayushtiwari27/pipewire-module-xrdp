@@ -273,39 +273,68 @@ static void set_fifo_paths(struct impl *impl) {
 }
 
 static int open_fifo(const char *path, int flags, mode_t mode) {
-	int fd;
-
-	/* Remove stale FIFO if it exists */
-	unlink(path);
-
-	/* Create new FIFO */
-	if (mkfifo(path, mode) < 0 && errno != EEXIST) {
-		pw_log_error("Failed to create FIFO %s: %s", path, strerror(errno));
-		return -1;
-	}
-
-	/* Open with O_NONBLOCK to prevent blocking if no reader/writer */
-	fd = open(path, flags | O_NONBLOCK);
-	if (fd < 0) {
-		pw_log_error("Failed to open FIFO %s: %s", path, strerror(errno));
-		return -1;
-	}
-
-	pw_log_info("Opened FIFO: %s (fd=%d)", path, fd);
-	return fd;
+    struct stat st;
+    int fd;
+    
+    /* Check if FIFO exists */
+    if (stat(path, &st) < 0) {
+        if (errno == ENOENT) {
+            /* FIFO doesn't exist, create it */
+            if (mkfifo(path, mode) < 0) {
+                pw_log_error("Failed to create FIFO %s: %s", path, strerror(errno));
+                return -1;
+            }
+            pw_log_info("Created FIFO: %s", path);
+        } else {
+            pw_log_error("stat %s failed: %s", path, strerror(errno));
+            return -1;
+        }
+    } else if (!S_ISFIFO(st.st_mode)) {
+        /* File exists but is not a FIFO */
+        pw_log_warn("%s exists but is not a FIFO, recreating", path);
+        unlink(path);
+        if (mkfifo(path, mode) < 0) {
+            pw_log_error("Failed to recreate FIFO %s: %s", path, strerror(errno));
+            return -1;
+        }
+    }
+    
+    /* Try to open with O_NONBLOCK */
+    fd = open(path, flags | O_NONBLOCK);
+    
+    if (fd < 0) {
+        if (errno == ENXIO) {
+            /* No reader/writer on the other end - this is EXPECTED and OK */
+            pw_log_info("FIFO %s: no peer connected yet (will retry later)", path);
+            
+            /* Return a special code to indicate "not ready yet" vs "fatal error" */
+            /* We'll use -ENXIO to distinguish from -1 */
+            return -ENXIO;
+        }
+        
+        /* Other errors are real problems */
+        pw_log_error("Failed to open FIFO %s: %s", path, strerror(errno));
+        return -1;
+    }
+    
+    pw_log_info("Successfully opened FIFO: %s (fd=%d)", path, fd);
+    return fd;
 }
-
 static int open_speaker_fifo(struct impl *impl) {
 	if (impl->fd_sink >= 0) {
 		return 0; /* Already open */
 	}
 
-	impl->fd_sink = open_fifo(impl->filename_sink, O_WRONLY, 0644);
-	if (impl->fd_sink < 0) {
-		pw_log_warn("Could not open speaker FIFO, will retry");
-		return -1;
+	impl->fd_sink = open_fifo(impl->filename_sink, O_WRONLY, 0666);
+	if (impl->fd_sink == -ENXIO) {
+	    /* No reader yet - this is OK, we'll retry later */
+	    pw_log_info("Speaker FIFO not ready yet, will open on first use");
+	    impl->fd_sink = -1;  /* Mark as not open */
+	    /* Continue with module init! Don't fail here! */
+	} else if (impl->fd_sink < 0) {
+	    /* Fatal error */
+	    pw_log_error("Failed to open speaker FIFO");
 	}
-
 	return 0;
 }
 
@@ -313,13 +342,14 @@ static int open_mic_fifo(struct impl *impl) {
 	if (impl->fd_source >= 0) {
 		return 0; /* Already open */
 	}
-
-	impl->fd_source = open_fifo(impl->filename_source, O_RDONLY, 0644);
-	if (impl->fd_source < 0) {
-		pw_log_warn("Could not open mic FIFO, will retry");
-		return -1;
+	impl->fd_source = open_fifo(impl->filename_source, O_RDONLY, 0666);
+	if (impl->fd_source == -ENXIO) {
+	    pw_log_info("Mic FIFO not ready yet, will open on first use");
+	    impl->fd_source = -1;
+	    /* Continue! */
+	} else if (impl->fd_source < 0) {
+	    pw_log_error("Failed to open mic FIFO");
 	}
-
 	return 0;
 }
 
@@ -952,13 +982,15 @@ int pipewire__module_init(struct pw_impl_module *module, const char *args)
 		impl->mode |= MODE_XRDP_SINK;
 		pw_properties_update_string(impl->stream_props_sink, str, strlen(str));
 	}
-
+	pw_properties_set(impl->stream_props_sink, "object.register", "true");
+	pw_properties_set(impl->stream_props_sink, PW_KEY_NODE_NAME, "xrdp-sink");
+	pw_properties_set(impl->stream_props_sink, PW_KEY_NODE_DESCRIPTION, "XRDP Audio Output");
 	copy_props(impl->stream_props_sink, props, PW_KEY_AUDIO_FORMAT);
 	copy_props(impl->stream_props_sink, props, PW_KEY_AUDIO_RATE);
 	copy_props(impl->stream_props_sink, props, PW_KEY_AUDIO_CHANNELS);
 	copy_props(impl->stream_props_sink, props, SPA_KEY_AUDIO_POSITION);
-	copy_props(impl->stream_props_sink, props, PW_KEY_NODE_NAME);
-	copy_props(impl->stream_props_sink, props, PW_KEY_NODE_DESCRIPTION);
+//	copy_props(impl->stream_props_sink, props, PW_KEY_NODE_NAME);
+//	copy_props(impl->stream_props_sink, props, PW_KEY_NODE_DESCRIPTION);
 	copy_props(impl->stream_props_sink, props, PW_KEY_NODE_GROUP);
 //	copy_props(impl->stream_props_sink, props, PW_KEY_NODE_LATENCY);
 	copy_props(impl->stream_props_sink, props, PW_KEY_NODE_VIRTUAL);
@@ -1005,13 +1037,15 @@ int pipewire__module_init(struct pw_impl_module *module, const char *args)
 		impl->mode |= MODE_XRDP_SOURCE;
 		pw_properties_update_string(impl->stream_props_source, str, strlen(str));
 	}
-
+	pw_properties_set(impl->stream_props_source, "object.register", "true");
+	pw_properties_set(impl->stream_props_source, PW_KEY_NODE_NAME, "xrdp-source");
+	pw_properties_set(impl->stream_props_source, PW_KEY_NODE_DESCRIPTION, "XRDP Audio Input");
 	copy_props(impl->stream_props_source, props, PW_KEY_AUDIO_FORMAT);
 	copy_props(impl->stream_props_source, props, PW_KEY_AUDIO_RATE);
 	copy_props(impl->stream_props_source, props, PW_KEY_AUDIO_CHANNELS);
 	copy_props(impl->stream_props_source, props, SPA_KEY_AUDIO_POSITION);
-	copy_props(impl->stream_props_source, props, PW_KEY_NODE_NAME);
-	copy_props(impl->stream_props_source, props, PW_KEY_NODE_DESCRIPTION);
+//	copy_props(impl->stream_props_source, props, PW_KEY_NODE_NAME);
+//	copy_props(impl->stream_props_source, props, PW_KEY_NODE_DESCRIPTION);
 	copy_props(impl->stream_props_source, props, PW_KEY_NODE_GROUP);
 	copy_props(impl->stream_props_source, props, PW_KEY_NODE_LATENCY);
 	copy_props(impl->stream_props_source, props, PW_KEY_NODE_VIRTUAL);

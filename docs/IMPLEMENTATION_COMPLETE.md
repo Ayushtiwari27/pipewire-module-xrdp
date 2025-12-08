@@ -235,9 +235,11 @@ sudo make install
 
 ### 1. Load the Module
 
+**IMPORTANT:** Module requires `sink.stream.props` and `source.stream.props` arguments.
+
 ```bash
-# Load module
-pw-cli load-module libpipewire-module-xrdp
+# Load module with required arguments
+pw-cli load-module libpipewire-module-xrdp '{ sink.stream.props={} source.stream.props={} }'
 
 # Verify it's loaded
 pw-cli ls Module | grep xrdp
@@ -377,6 +379,15 @@ Based on pipewire-module-xrdp by neutrinolabs:
 - https://github.com/neutrinolabs/pipewire-module-xrdp
 
 Modified for custom FIFO-based audio routing.
+
+---
+
+## Important Notes
+
+**Module Loading Requirements:**
+- The module MUST be loaded with at least one of `sink.stream.props` or `source.stream.props` arguments
+- Loading without arguments will fail with "Invalid argument" error
+- For both speaker and microphone support, use: `pw-cli load-module libpipewire-module-xrdp '{ sink.stream.props={} source.stream.props={} }'`
 
 ---
 

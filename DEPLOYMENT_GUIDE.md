@@ -187,12 +187,14 @@ echo 'source ~/.config/xrdp-audio.conf' >> ~/.bashrc
 
 ### Test 1: Load Module
 
+**IMPORTANT:** The module requires `sink.stream.props` and `source.stream.props` arguments to initialize both speaker and microphone streams.
+
 ```bash
 # Load the module (from build directory)
-pw-cli load-module /home/dev/pipewire-module-xrdp/build/src/.libs/libpipewire-module-xrdp
+pw-cli load-module /home/dev/pipewire-module-xrdp/build/src/.libs/libpipewire-module-xrdp '{ sink.stream.props={} source.stream.props={} }'
 
 # OR if installed system-wide
-pw-cli load-module libpipewire-module-xrdp
+pw-cli load-module libpipewire-module-xrdp '{ sink.stream.props={} source.stream.props={} }'
 
 # Verify module is loaded
 pw-cli ls Module | grep -i xrdp
@@ -200,10 +202,10 @@ pw-cli ls Module | grep -i xrdp
 
 **Expected Output:**
 ```
-Module ID: 52
-    Name: libpipewire-module-xrdp
-    ...
+module.name = "libpipewire-module-xrdp"
 ```
+
+**Note:** Loading without arguments will fail with "Invalid argument" error. At minimum, you must specify either `sink.stream.props={}` or `source.stream.props={}` or both.
 
 ### Test 2: Verify FIFOs Created
 
@@ -343,7 +345,7 @@ paplay loopback_test.wav  # Should hear the original sound
 ```bash
 # Don't install, just load from build directory
 cd /home/dev/pipewire-module-xrdp/build
-pw-cli load-module $(pwd)/src/.libs/libpipewire-module-xrdp
+pw-cli load-module $(pwd)/src/.libs/libpipewire-module-xrdp '{ sink.stream.props={} source.stream.props={} }'
 
 # Start FFmpeg manager manually
 ../scripts/ffmpeg_manager.sh start
@@ -520,8 +522,8 @@ systemctl --user start pipewire pipewire-pulse
 # Wait for PipeWire to be ready
 sleep 2
 
-# Load XRDP audio module
-pw-cli load-module libpipewire-module-xrdp
+# Load XRDP audio module with required arguments
+pw-cli load-module libpipewire-module-xrdp '{ sink.stream.props={} source.stream.props={} }'
 
 # Start FFmpeg manager
 /usr/local/bin/ffmpeg_manager.sh start &
@@ -549,21 +551,30 @@ sudo systemctl restart xrdp
 
 **Solutions:**
 
-1. Check module path:
+1. **Ensure you include required arguments:**
+   ```bash
+   # CORRECT - with arguments
+   pw-cli load-module libpipewire-module-xrdp '{ sink.stream.props={} source.stream.props={} }'
+
+   # WRONG - without arguments (will fail with "Invalid argument")
+   pw-cli load-module libpipewire-module-xrdp
+   ```
+
+2. Check module path:
    ```bash
    # Find where modules are installed
    find /usr -name "libpipewire-*.so" 2>/dev/null | head -5
 
-   # Use absolute path
-   pw-cli load-module /full/path/to/libpipewire-module-xrdp.so
+   # Use absolute path with arguments
+   pw-cli load-module /full/path/to/libpipewire-module-xrdp.so '{ sink.stream.props={} source.stream.props={} }'
    ```
 
-2. Check dependencies:
+3. Check dependencies:
    ```bash
    ldd build/src/.libs/libpipewire-module-xrdp.so
    ```
 
-3. Check PipeWire logs:
+4. Check PipeWire logs:
    ```bash
    journalctl --user -u pipewire -f
    ```
@@ -767,8 +778,8 @@ systemd-cgtop
 ### Common Commands
 
 ```bash
-# Load module
-pw-cli load-module libpipewire-module-xrdp
+# Load module (requires arguments!)
+pw-cli load-module libpipewire-module-xrdp '{ sink.stream.props={} source.stream.props={} }'
 
 # Unload module
 pw-cli unload-module <module-id>

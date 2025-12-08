@@ -114,10 +114,19 @@ if pw-cli ls Module | grep -q "libpipewire-module-xrdp"; then
 fi
 
 log_info "Loading module..."
-if pw-cli load-module "$MODULE_PATH"; then
-    log_success "Module loaded successfully"
+# Module requires sink.stream.props and source.stream.props arguments
+if pw-cli load-module "$MODULE_PATH" '{ sink.stream.props={} source.stream.props={} }' >/dev/null 2>&1; then
+    sleep 1
+    # Verify module actually loaded
+    if pw-cli ls Module | grep -q "libpipewire-module-xrdp"; then
+        log_success "Module loaded successfully"
+    else
+        log_error "Module command succeeded but module not found in PipeWire"
+        exit 1
+    fi
 else
     log_error "Failed to load module"
+    log_error "Note: Module requires sink.stream.props and source.stream.props arguments"
     exit 1
 fi
 
