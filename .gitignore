@@ -6,7 +6,7 @@ build-aux/*
 *.swp
 
 src/cli_0358_mod
-instfiles/pipewire-xrdp.desktop
+instfiles/pipewire-synccast.desktop
 
 # http://www.gnu.org/software/automake
 Makefile

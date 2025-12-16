@@ -12,18 +12,18 @@ fi
 
 status=0
 
-if [ -n "$XRDP_SESSION" -a -n "$XRDP_SOCKET_PATH" ]; then
-    # Destroy xrdp sink and source if they already exist
+if [ -n "$SYNCCAST_SESSION" -a -n "$SYNCCAST_SOCKET_PATH" ]; then
+    # Destroy synccast sink and source if they already exist
     OBJECT_IDS=$(pw-cli ls Node | sed -e "s/^[^a-z]//" | grep -w "^id" | sed -e "s/^[^0-9]*//" -e "s/[^0-9]/-/" | cut -d- -f1)
     for OBJECT_ID in $OBJECT_IDS; do
         NODE_NAME=$(pw-cli info $OBJECT_ID | grep -w "node\.name" | cut -d\" -f2)
-        if [ "$NODE_NAME" = "xrdp-sink" -o "$NODE_NAME" = "xrdp-source" ]; then
+        if [ "$NODE_NAME" = "synccast-sink" -o "$NODE_NAME" = "synccast-source" ]; then
             pw-cli destroy $OBJECT_ID
         fi
     done
 
     # Kill module, if it is working
-    #PID=$(ps -u $(id -u) -o pid,ruser,cmd | grep libpipewire-module-xrdp | grep -v grep | sed -e 's/^ *//' | cut -d' ' -f1)
+    #PID=$(ps -u $(id -u) -o pid,ruser,cmd | grep libpipewire-module-synccast | grep -v grep | sed -e 's/^ *//' | cut -d' ' -f1)
     #if [ -n "$PID" ]; then
     #    kill -HUP $PID
     #fi
@@ -38,7 +38,7 @@ if [ -n "$XRDP_SESSION" -a -n "$XRDP_SOCKET_PATH" ]; then
         else
             export PIPEWIRE_DEBUG=3
         fi
-        export PIPEWIRE_LOG=/tmp/xrdp_pipewire_$(echo $DISPLAY | sed -e 's/^[^0-9]//' | cut -d. -f1).log
+        export PIPEWIRE_LOG=/tmp/synccast_pipewire_$(echo $DISPLAY | sed -e 's/^[^0-9]//' | cut -d. -f1).log
     else
         export PIPEWIRE_DEBUG=1
     fi
@@ -52,12 +52,12 @@ if [ -n "$XRDP_SESSION" -a -n "$XRDP_SOCKET_PATH" ]; then
     QUANTUMVAL=2048
     QUANTUMVAL2=$(($QUANTUMVAL * 2))
 
-    # enable both xrdp-sink ans xrdp-source
-    $PWCLI -m -d load-module libpipewire-module-xrdp sink.node.latency=$QUANTUMVAL sink.stream.props={node.name=xrdp-sink} source.stream.props={node.name=xrdp-source} > /dev/null &
-    # enable xrdp-sink only
-    # $PWCLI -m -d load-module libpipewire-module-xrdp sink.node.latency=$QUANTUMVAL sink.stream.props={node.name=xrdp-sink} > /dev/null &
-    # enable xrdp-source only
-    # $PWCLI -m -d load-module libpipewire-module-xrdp source.stream.props={node.name=xrdp-source} > /dev/null &
+    # enable both synccast-sink ans synccast-source
+    $PWCLI -m -d load-module libpipewire-module-synccast sink.node.latency=$QUANTUMVAL sink.stream.props={node.name=synccast-sink} source.stream.props={node.name=synccast-source} > /dev/null &
+    # enable synccast-sink only
+    # $PWCLI -m -d load-module libpipewire-module-synccast sink.node.latency=$QUANTUMVAL sink.stream.props={node.name=synccast-sink} > /dev/null &
+    # enable synccast-source only
+    # $PWCLI -m -d load-module libpipewire-module-synccast source.stream.props={node.name=synccast-source} > /dev/null &
 
     sleep 1
 
@@ -72,8 +72,8 @@ if [ -n "$XRDP_SESSION" -a -n "$XRDP_SOCKET_PATH" ]; then
     pw-metadata -n settings 0 default.clock.rate 44100 >/dev/null
 
     if command -v pactl >/dev/null; then
-        pactl set-default-sink xrdp-sink
-        pactl set-default-source xrdp-source
+        pactl set-default-sink synccast-sink
+        pactl set-default-source synccast-source
     fi
 fi
 

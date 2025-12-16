@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Quick Test Script for XRDP Audio FIFO Module
+# Quick Test Script for SyncCast Audio FIFO Module
 #
 # This script helps you quickly test the module without manual setup
 #
@@ -38,12 +38,12 @@ print_header() {
 }
 
 # Check if we're in the right directory
-if [ ! -f "src/module-xrdp.c" ]; then
-    log_error "Please run this script from the pipewire-module-xrdp root directory"
+if [ ! -f "src/module-synccast.c" ]; then
+    log_error "Please run this script from the pipewire-module-synccast root directory"
     exit 1
 fi
 
-print_header "XRDP Audio FIFO Module - Quick Test"
+print_header "SyncCast Audio FIFO Module - Quick Test"
 
 # Step 1: Check prerequisites
 log_info "Checking prerequisites..."
@@ -69,7 +69,7 @@ log_success "Prerequisites OK"
 # Step 2: Build the module
 print_header "Step 1: Building the Module"
 
-if [ ! -f "build/src/.libs/libpipewire-module-xrdp.so" ]; then
+if [ ! -f "build/src/.libs/libpipewire-module-synccast.so" ]; then
     log_info "Module not built. Building now..."
 
     if [ ! -f "configure" ]; then
@@ -93,22 +93,22 @@ else
 fi
 
 # Verify build
-if [ ! -f "build/src/.libs/libpipewire-module-xrdp.so" ]; then
+if [ ! -f "build/src/.libs/libpipewire-module-synccast.so" ]; then
     log_error "Build failed - module not found"
     exit 1
 fi
 
-log_success "Module binary found: build/src/.libs/libpipewire-module-xrdp.so"
+log_success "Module binary found: build/src/.libs/libpipewire-module-synccast.so"
 
 # Step 3: Load the module
 print_header "Step 2: Loading the Module"
 
-MODULE_PATH="$(pwd)/build/src/.libs/libpipewire-module-xrdp"
+MODULE_PATH="$(pwd)/build/src/.libs/libpipewire-module-synccast"
 
 # Check if already loaded
-if pw-cli ls Module | grep -q "libpipewire-module-xrdp"; then
+if pw-cli ls Module | grep -q "libpipewire-module-synccast"; then
     log_warn "Module already loaded. Unloading first..."
-    MODULE_ID=$(pw-cli ls Module | grep -B1 "libpipewire-module-xrdp" | grep "id" | awk '{print $2}' | tr -d ',')
+    MODULE_ID=$(pw-cli ls Module | grep -B1 "libpipewire-module-synccast" | grep "id" | awk '{print $2}' | tr -d ',')
     pw-cli unload-module "$MODULE_ID" 2>/dev/null || true
     sleep 1
 fi
@@ -118,7 +118,7 @@ log_info "Loading module..."
 if pw-cli load-module "$MODULE_PATH" '{ sink.stream.props={} source.stream.props={} }' >/dev/null 2>&1; then
     sleep 1
     # Verify module actually loaded
-    if pw-cli ls Module | grep -q "libpipewire-module-xrdp"; then
+    if pw-cli ls Module | grep -q "libpipewire-module-synccast"; then
         log_success "Module loaded successfully"
     else
         log_error "Module command succeeded but module not found in PipeWire"
@@ -136,9 +136,9 @@ sleep 2
 print_header "Step 3: Verifying FIFOs"
 
 RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-SPK_FIFO="$RUNTIME_DIR/xrdp_spk.pcm"
-MIC_FIFO="$RUNTIME_DIR/xrdp_mic.pcm"
-FORMAT_FILE="$RUNTIME_DIR/xrdp_audio_format.txt"
+SPK_FIFO="$RUNTIME_DIR/synccast_spk.pcm"
+MIC_FIFO="$RUNTIME_DIR/synccast_mic.pcm"
+FORMAT_FILE="$RUNTIME_DIR/synccast_audio_format.txt"
 
 if [ -p "$SPK_FIFO" ]; then
     log_success "Speaker FIFO created: $SPK_FIFO"
@@ -163,14 +163,14 @@ fi
 # Step 5: Verify PipeWire devices
 print_header "Step 4: Verifying PipeWire Devices"
 
-if pw-cli ls Node | grep -q "xrdp-sink"; then
-    log_success "Speaker device (xrdp-sink) detected"
+if pw-cli ls Node | grep -q "synccast-sink"; then
+    log_success "Speaker device (synccast-sink) detected"
 else
     log_error "Speaker device not found"
 fi
 
-if pw-cli ls Node | grep -q "xrdp-source"; then
-    log_success "Microphone device (xrdp-source) detected"
+if pw-cli ls Node | grep -q "synccast-source"; then
+    log_success "Microphone device (synccast-source) detected"
 else
     log_error "Microphone device not found"
 fi
@@ -178,8 +178,8 @@ fi
 # Step 6: Start FFmpeg manager
 print_header "Step 5: Starting FFmpeg Manager"
 
-if [ -f "$RUNTIME_DIR/xrdp_ffmpeg_speaker.pid" ]; then
-    OLD_PID=$(cat "$RUNTIME_DIR/xrdp_ffmpeg_speaker.pid")
+if [ -f "$RUNTIME_DIR/synccast_ffmpeg_speaker.pid" ]; then
+    OLD_PID=$(cat "$RUNTIME_DIR/synccast_ffmpeg_speaker.pid")
     if kill -0 "$OLD_PID" 2>/dev/null; then
         log_warn "FFmpeg manager already running (PID: $OLD_PID)"
         log_info "Stopping old instance..."
@@ -189,14 +189,14 @@ if [ -f "$RUNTIME_DIR/xrdp_ffmpeg_speaker.pid" ]; then
 fi
 
 log_info "Starting FFmpeg manager in background..."
-nohup ./scripts/ffmpeg_manager.sh start > /tmp/xrdp_ffmpeg_manager.log 2>&1 &
+nohup ./scripts/ffmpeg_manager.sh start > /tmp/synccast_ffmpeg_manager.log 2>&1 &
 MANAGER_PID=$!
 
 sleep 3
 
 # Check if it started
-if [ -f "$RUNTIME_DIR/xrdp_ffmpeg_speaker.pid" ]; then
-    SPK_PID=$(cat "$RUNTIME_DIR/xrdp_ffmpeg_speaker.pid")
+if [ -f "$RUNTIME_DIR/synccast_ffmpeg_speaker.pid" ]; then
+    SPK_PID=$(cat "$RUNTIME_DIR/synccast_ffmpeg_speaker.pid")
     if kill -0 "$SPK_PID" 2>/dev/null; then
         log_success "Speaker encoder running (PID: $SPK_PID)"
     else
@@ -204,8 +204,8 @@ if [ -f "$RUNTIME_DIR/xrdp_ffmpeg_speaker.pid" ]; then
     fi
 fi
 
-if [ -f "$RUNTIME_DIR/xrdp_ffmpeg_mic.pid" ]; then
-    MIC_PID=$(cat "$RUNTIME_DIR/xrdp_ffmpeg_mic.pid")
+if [ -f "$RUNTIME_DIR/synccast_ffmpeg_mic.pid" ]; then
+    MIC_PID=$(cat "$RUNTIME_DIR/synccast_ffmpeg_mic.pid")
     if kill -0 "$MIC_PID" 2>/dev/null; then
         log_success "Mic decoder running (PID: $MIC_PID)"
     else
@@ -216,16 +216,16 @@ fi
 # Step 7: Run audio test
 print_header "Step 6: Running Audio Test"
 
-log_info "Playing test tone through xrdp-sink..."
+log_info "Playing test tone through synccast-sink..."
 
 if command -v speaker-test &> /dev/null; then
     log_info "Using speaker-test (2 seconds)..."
-    timeout 2 speaker-test -D xrdp-sink -c 2 -t sine -f 440 2>/dev/null || true
+    timeout 2 speaker-test -D synccast-sink -c 2 -t sine -f 440 2>/dev/null || true
     log_success "Audio test completed"
 else
     log_warn "speaker-test not found, trying paplay..."
     if [ -f "/usr/share/sounds/alsa/Front_Center.wav" ]; then
-        paplay -d xrdp-sink /usr/share/sounds/alsa/Front_Center.wav 2>/dev/null || true
+        paplay -d synccast-sink /usr/share/sounds/alsa/Front_Center.wav 2>/dev/null || true
         log_success "Audio test completed"
     else
         log_warn "No test audio file found. Skipping audio test."
@@ -246,22 +246,22 @@ echo "Summary:"
 echo "--------"
 echo "✅ Module loaded and running"
 echo "✅ FIFOs created: $SPK_FIFO, $MIC_FIFO"
-echo "✅ PipeWire devices: xrdp-sink, xrdp-source"
+echo "✅ PipeWire devices: synccast-sink, synccast-source"
 echo "✅ FFmpeg manager running"
 echo ""
 echo "Next Steps:"
 echo "-----------"
-echo "1. Play audio to xrdp-sink:"
-echo "   paplay -d xrdp-sink /path/to/audio.wav"
+echo "1. Play audio to synccast-sink:"
+echo "   paplay -d synccast-sink /path/to/audio.wav"
 echo ""
-echo "2. Record from xrdp-source:"
-echo "   parecord -d xrdp-source output.wav"
+echo "2. Record from synccast-source:"
+echo "   parecord -d synccast-source output.wav"
 echo ""
 echo "3. Monitor speaker encoder:"
-echo "   tail -f $RUNTIME_DIR/xrdp_ffmpeg_speaker.log"
+echo "   tail -f $RUNTIME_DIR/synccast_ffmpeg_speaker.log"
 echo ""
 echo "4. Monitor mic decoder:"
-echo "   tail -f $RUNTIME_DIR/xrdp_ffmpeg_mic.log"
+echo "   tail -f $RUNTIME_DIR/synccast_ffmpeg_mic.log"
 echo ""
 echo "5. Check format changes:"
 echo "   cat $FORMAT_FILE"

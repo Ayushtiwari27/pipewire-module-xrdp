@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# XRDP Audio FIFO Manager with FFmpeg
+# SyncCast Audio FIFO Manager with FFmpeg
 #
 # This script monitors the audio format specification file and manages
 # FFmpeg processes for encoding speaker audio and decoding microphone audio.
@@ -12,21 +12,21 @@ set -e
 
 # Configuration
 USER_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-SPK_FIFO="${XRDP_AUDIO_SPK_FIFO:-${USER_RUNTIME_DIR}/xrdp_spk.pcm}"
-MIC_FIFO="${XRDP_AUDIO_MIC_FIFO:-${USER_RUNTIME_DIR}/xrdp_mic.pcm}"
-FORMAT_FILE="${XRDP_AUDIO_FORMAT_FILE:-${USER_RUNTIME_DIR}/xrdp_audio_format.txt}"
+SPK_FIFO="${SYNCCAST_AUDIO_SPK_FIFO:-${USER_RUNTIME_DIR}/synccast_spk.pcm}"
+MIC_FIFO="${SYNCCAST_AUDIO_MIC_FIFO:-${USER_RUNTIME_DIR}/synccast_mic.pcm}"
+FORMAT_FILE="${SYNCCAST_AUDIO_FORMAT_FILE:-${USER_RUNTIME_DIR}/synccast_audio_format.txt}"
 
 # Output files (you can modify these for your use case)
-SPEAKER_OUTPUT="${USER_RUNTIME_DIR}/xrdp_speaker_encoded.opus"
-MIC_INPUT="${USER_RUNTIME_DIR}/xrdp_mic_decoded.opus"
+SPEAKER_OUTPUT="${USER_RUNTIME_DIR}/synccast_speaker_encoded.opus"
+MIC_INPUT="${USER_RUNTIME_DIR}/synccast_mic_decoded.opus"
 
 # PID files
-SPK_PID_FILE="${USER_RUNTIME_DIR}/xrdp_ffmpeg_speaker.pid"
-MIC_PID_FILE="${USER_RUNTIME_DIR}/xrdp_ffmpeg_mic.pid"
+SPK_PID_FILE="${USER_RUNTIME_DIR}/synccast_ffmpeg_speaker.pid"
+MIC_PID_FILE="${USER_RUNTIME_DIR}/synccast_ffmpeg_mic.pid"
 
 # Log files
-SPK_LOG_FILE="${USER_RUNTIME_DIR}/xrdp_ffmpeg_speaker.log"
-MIC_LOG_FILE="${USER_RUNTIME_DIR}/xrdp_ffmpeg_mic.log"
+SPK_LOG_FILE="${USER_RUNTIME_DIR}/synccast_ffmpeg_speaker.log"
+MIC_LOG_FILE="${USER_RUNTIME_DIR}/synccast_ffmpeg_mic.log"
 
 # Current format values
 SPEAKER_RATE=48000
@@ -144,7 +144,7 @@ stop_processes() {
 }
 
 status() {
-    echo "XRDP Audio FIFO Manager Status"
+    echo "SyncCast Audio FIFO Manager Status"
     echo "==============================="
     echo ""
     echo "Configuration:"
@@ -219,12 +219,12 @@ watch_format_file() {
 
 case "${1:-start}" in
     start)
-        log "Starting XRDP Audio FIFO Manager..."
+        log "Starting SyncCast Audio FIFO Manager..."
         watch_format_file
         ;;
     stop)
         stop_processes
-        log "XRDP Audio FIFO Manager stopped"
+        log "SyncCast Audio FIFO Manager stopped"
         ;;
     restart)
         stop_processes
@@ -233,7 +233,7 @@ case "${1:-start}" in
             start_speaker_encoder
             start_mic_decoder
         fi
-        log "XRDP Audio FIFO Manager restarted"
+        log "SyncCast Audio FIFO Manager restarted"
         ;;
     status)
         status

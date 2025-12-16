@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Package Creation Script for pipewire-module-xrdp
+# Package Creation Script for pipewire-module-synccast
 # Creates a redistributable package with pre-built binaries
 #
 
@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # Package information
-PKG_NAME="pipewire-module-xrdp"
+PKG_NAME="pipewire-module-synccast"
 PKG_VERSION="0.2-fifo"
 PKG_ARCH=$(uname -m)
 PKG_FULLNAME="${PKG_NAME}-${PKG_VERSION}-${PKG_ARCH}"
@@ -25,15 +25,15 @@ rm -rf package
 mkdir -p "${PKG_DIR}"
 
 # Check if module is built
-if [ ! -f "build/src/.libs/libpipewire-module-xrdp.so" ]; then
+if [ ! -f "build/src/.libs/libpipewire-module-synccast.so" ]; then
     echo "ERROR: Module not built. Please run './bootstrap && cd build && ../configure && make' first"
     exit 1
 fi
 
 echo "[1/6] Copying module binary..."
 mkdir -p "${PKG_DIR}/lib"
-cp build/src/.libs/libpipewire-module-xrdp.so "${PKG_DIR}/lib/"
-strip "${PKG_DIR}/lib/libpipewire-module-xrdp.so"
+cp build/src/.libs/libpipewire-module-synccast.so "${PKG_DIR}/lib/"
+strip "${PKG_DIR}/lib/libpipewire-module-synccast.so"
 
 echo "[2/6] Copying scripts..."
 mkdir -p "${PKG_DIR}/bin"
@@ -53,7 +53,7 @@ echo "[4/6] Creating installation script..."
 cat > "${PKG_DIR}/install.sh" << 'INSTALL_EOF'
 #!/bin/bash
 #
-# Installation Script for pipewire-module-xrdp
+# Installation Script for pipewire-module-synccast
 # Auto-detects OS and installs dependencies
 #
 
@@ -175,7 +175,7 @@ install_module() {
         log_info "Scripts: $BIN_DIR"
 
         sudo mkdir -p "$MODULE_DIR"
-        sudo cp lib/libpipewire-module-xrdp.so "$MODULE_DIR/"
+        sudo cp lib/libpipewire-module-synccast.so "$MODULE_DIR/"
 
         sudo cp bin/ffmpeg_manager.sh "$BIN_DIR/"
         sudo chmod +x "$BIN_DIR/ffmpeg_manager.sh"
@@ -192,7 +192,7 @@ install_module() {
         log_info "Scripts: $BIN_DIR"
 
         mkdir -p "$MODULE_DIR"
-        cp lib/libpipewire-module-xrdp.so "$MODULE_DIR/"
+        cp lib/libpipewire-module-synccast.so "$MODULE_DIR/"
 
         mkdir -p "$BIN_DIR"
         cp bin/ffmpeg_manager.sh "$BIN_DIR/"
@@ -214,7 +214,7 @@ create_pipewire_config() {
     print_header "Configuring PipeWire"
 
     CONFIG_DIR="$HOME/.config/pipewire/pipewire.conf.d"
-    CONFIG_FILE="$CONFIG_DIR/90-xrdp.conf"
+    CONFIG_FILE="$CONFIG_DIR/90-synccast.conf"
 
     mkdir -p "$CONFIG_DIR"
 
@@ -230,7 +230,7 @@ create_pipewire_config() {
 
     cat > "$CONFIG_FILE" << 'CONFIG_EOF'
 context.modules = [
-    {   name = libpipewire-module-xrdp
+    {   name = libpipewire-module-synccast
         args = {
             sink.stream.props = { }
             source.stream.props = { }
@@ -253,10 +253,10 @@ print_usage() {
     echo "   systemctl --user restart pipewire"
     echo ""
     echo "2. Verify module loaded:"
-    echo "   pw-cli ls Module | grep xrdp"
+    echo "   pw-cli ls Module | grep synccast"
     echo ""
     echo "3. Check FIFOs created:"
-    echo "   ls -la /run/user/\$(id -u)/xrdp_*.pcm"
+    echo "   ls -la /run/user/\$(id -u)/synccast_*.pcm"
     echo ""
     echo "4. Start FFmpeg manager:"
     if [ "$INSTALL_TYPE" = "system" ]; then
@@ -266,7 +266,7 @@ print_usage() {
     fi
     echo ""
     echo "5. Test audio:"
-    echo "   speaker-test -D xrdp-sink -c 2 -t wav"
+    echo "   speaker-test -D synccast-sink -c 2 -t wav"
     echo ""
     echo "Documentation: ./docs/"
     echo ""
@@ -274,7 +274,7 @@ print_usage() {
 
 # Main installation
 main() {
-    print_header "pipewire-module-xrdp Installer"
+    print_header "pipewire-module-synccast Installer"
 
     # Parse arguments
     INSTALL_TYPE="user"
@@ -336,12 +336,12 @@ Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 Built On: $(uname -a)
 
 Description:
-  PipeWire module for XRDP with FIFO-based audio routing.
+  PipeWire module for SyncCast with FIFO-based audio routing.
   Provides custom audio routing through named pipes (FIFOs)
   for integration with external audio processing tools like FFmpeg.
 
 Components:
-  - libpipewire-module-xrdp.so: Main PipeWire module
+  - libpipewire-module-synccast.so: Main PipeWire module
   - ffmpeg_manager.sh: FFmpeg process management script
   - quick-test.sh: Quick testing utility
   - install.sh: OS-aware installation script

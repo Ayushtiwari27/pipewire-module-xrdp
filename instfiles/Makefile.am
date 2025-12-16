@@ -1,12 +1,12 @@
 EXTRA_DIST = \
    load_pw_modules.sh \
-   pipewire-xrdp.desktop.in
+   pipewire-synccast.desktop.in
 
 #
 # substitute directories in service file
 #
 CLEANFILES= \
-   pipewire-xrdp.desktop
+   pipewire-synccast.desktop
 
 SUBST_VARS = sed \
    -e 's|@pkglibexecdir[@]|$(pkglibexecdir)|g'
@@ -23,7 +23,7 @@ SUFFIXES = .in
 # files for all platforms
 #
 xdgautostart_DATA = \
-  pipewire-xrdp.desktop
+  pipewire-synccast.desktop
 
 pkglibexec_SCRIPTS = \
   load_pw_modules.sh

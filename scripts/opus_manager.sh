@@ -1,32 +1,32 @@
 #!/bin/bash
 
-# XRDP Opus Audio Manager
-# Handles Opus encoding/decoding for XRDP audio FIFOs
+# SyncCast Opus Audio Manager
+# Handles Opus encoding/decoding for SyncCast audio FIFOs
 
 set -e
 
 # Configuration
 USER_ID=$(id -u)
 RUNTIME_DIR="/run/user/$USER_ID"
-SPEAKER_FIFO="$RUNTIME_DIR/xrdp_spk.pcm"
-MIC_FIFO="$RUNTIME_DIR/xrdp_mic.pcm"
-FORMAT_FILE="$RUNTIME_DIR/xrdp_audio_format.txt"
+SPEAKER_FIFO="$RUNTIME_DIR/synccast_spk.pcm"
+MIC_FIFO="$RUNTIME_DIR/synccast_mic.pcm"
+FORMAT_FILE="$RUNTIME_DIR/synccast_audio_format.txt"
 
 # Opus settings
-OPUS_BITRATE="${XRDP_OPUS_BITRATE:-64000}"      # 64kbps default
-OPUS_COMPLEXITY="${XRDP_OPUS_COMPLEXITY:-10}"   # Max quality
-OPUS_FRAME_DURATION="${XRDP_OPUS_FRAME:-20}"    # 20ms frames
-OPUS_APPLICATION="${XRDP_OPUS_APP:-voip}"       # voip/audio/lowdelay
+OPUS_BITRATE="${SYNCCAST_OPUS_BITRATE:-64000}"      # 64kbps default
+OPUS_COMPLEXITY="${SYNCCAST_OPUS_COMPLEXITY:-10}"   # Max quality
+OPUS_FRAME_DURATION="${SYNCCAST_OPUS_FRAME:-20}"    # 20ms frames
+OPUS_APPLICATION="${SYNCCAST_OPUS_APP:-voip}"       # voip/audio/lowdelay
 
 # Output settings
-OPUS_SPEAKER_OUTPUT="${XRDP_OPUS_SPEAKER_OUT:-$RUNTIME_DIR/xrdp_speaker.opus}"
-OPUS_MIC_INPUT="${XRDP_OPUS_MIC_IN:-$RUNTIME_DIR/xrdp_mic.opus}"
+OPUS_SPEAKER_OUTPUT="${SYNCCAST_OPUS_SPEAKER_OUT:-$RUNTIME_DIR/synccast_speaker.opus}"
+OPUS_MIC_INPUT="${SYNCCAST_OPUS_MIC_IN:-$RUNTIME_DIR/synccast_mic.opus}"
 
 # Alternatively, use RTP for network streaming
-USE_RTP="${XRDP_USE_RTP:-false}"
-RTP_SPEAKER_HOST="${XRDP_RTP_HOST:-127.0.0.1}"
-RTP_SPEAKER_PORT="${XRDP_RTP_SPEAKER_PORT:-5004}"
-RTP_MIC_PORT="${XRDP_RTP_MIC_PORT:-5006}"
+USE_RTP="${SYNCCAST_USE_RTP:-false}"
+RTP_SPEAKER_HOST="${SYNCCAST_RTP_HOST:-127.0.0.1}"
+RTP_SPEAKER_PORT="${SYNCCAST_RTP_SPEAKER_PORT:-5004}"
+RTP_MIC_PORT="${SYNCCAST_RTP_MIC_PORT:-5006}"
 
 # PID files
 SPEAKER_PID_FILE="$RUNTIME_DIR/opus_speaker_encoder.pid"
@@ -207,7 +207,7 @@ stop_all() {
 
 # Status check
 status() {
-    echo "XRDP Opus Audio Manager Status"
+    echo "SyncCast Opus Audio Manager Status"
     echo "==============================="
     echo
     echo "Configuration:"
@@ -279,14 +279,14 @@ case "${1:-start}" in
         echo "Usage: $0 {start|stop|restart|status|speaker|mic}"
         echo
         echo "Environment variables:"
-        echo "  XRDP_OPUS_BITRATE      - Opus bitrate (default: 64000)"
-        echo "  XRDP_OPUS_COMPLEXITY   - Opus complexity 0-10 (default: 10)"
-        echo "  XRDP_OPUS_FRAME        - Frame duration in ms (default: 20)"
-        echo "  XRDP_OPUS_APP          - Application: voip/audio/lowdelay (default: voip)"
-        echo "  XRDP_USE_RTP           - Use RTP streaming (default: false)"
-        echo "  XRDP_RTP_HOST          - RTP destination host (default: 127.0.0.1)"
-        echo "  XRDP_RTP_SPEAKER_PORT  - RTP speaker port (default: 5004)"
-        echo "  XRDP_RTP_MIC_PORT      - RTP mic port (default: 5006)"
+        echo "  SYNCCAST_OPUS_BITRATE      - Opus bitrate (default: 64000)"
+        echo "  SYNCCAST_OPUS_COMPLEXITY   - Opus complexity 0-10 (default: 10)"
+        echo "  SYNCCAST_OPUS_FRAME        - Frame duration in ms (default: 20)"
+        echo "  SYNCCAST_OPUS_APP          - Application: voip/audio/lowdelay (default: voip)"
+        echo "  SYNCCAST_USE_RTP           - Use RTP streaming (default: false)"
+        echo "  SYNCCAST_RTP_HOST          - RTP destination host (default: 127.0.0.1)"
+        echo "  SYNCCAST_RTP_SPEAKER_PORT  - RTP speaker port (default: 5004)"
+        echo "  SYNCCAST_RTP_MIC_PORT      - RTP mic port (default: 5006)"
         exit 1
         ;;
 esac
