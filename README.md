@@ -1,6 +1,6 @@
 # pipewire-module-synccast
 
-Thanks to @Hiero32 who contributed this module.
+
 
 This module allows synccast to generate sound on a pipewire-based system.
 

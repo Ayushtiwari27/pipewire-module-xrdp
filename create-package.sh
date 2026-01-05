@@ -213,10 +213,17 @@ install_module() {
 create_pipewire_config() {
     print_header "Configuring PipeWire"
 
-    CONFIG_DIR="$HOME/.config/pipewire/pipewire.conf.d"
-    CONFIG_FILE="$CONFIG_DIR/90-synccast.conf"
-
-    mkdir -p "$CONFIG_DIR"
+    if [ "$INSTALL_TYPE" = "system" ]; then
+        CONFIG_DIR="/etc/pipewire/pipewire.conf.d"
+        CONFIG_FILE="$CONFIG_DIR/90-synccast.conf"
+        log_info "Using system-wide configuration: $CONFIG_FILE"
+        sudo mkdir -p "$CONFIG_DIR"
+    else
+        CONFIG_DIR="$HOME/.config/pipewire/pipewire.conf.d"
+        CONFIG_FILE="$CONFIG_DIR/90-synccast.conf"
+        log_info "Using user configuration: $CONFIG_FILE"
+        mkdir -p "$CONFIG_DIR"
+    fi
 
     if [ -f "$CONFIG_FILE" ]; then
         log_warn "Configuration already exists: $CONFIG_FILE"
@@ -228,16 +235,20 @@ create_pipewire_config() {
         fi
     fi
 
-    cat > "$CONFIG_FILE" << 'CONFIG_EOF'
-context.modules = [
+    CONFIG_CONTENT='context.modules = [
     {   name = libpipewire-module-synccast
         args = {
             sink.stream.props = { }
             source.stream.props = { }
         }
     }
-]
-CONFIG_EOF
+]'
+
+    if [ "$INSTALL_TYPE" = "system" ]; then
+        echo "$CONFIG_CONTENT" | sudo tee "$CONFIG_FILE" > /dev/null
+    else
+        echo "$CONFIG_CONTENT" > "$CONFIG_FILE"
+    fi
 
     log_success "PipeWire configuration created: $CONFIG_FILE"
     log_info "Module will auto-load on PipeWire restart"
